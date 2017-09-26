@@ -90,6 +90,90 @@ void DX::CameraResources::CreateResourcesForBackBuffer(
         D3D11_TEXTURE2D_DESC backBufferDesc;
         m_d3dBackBuffer->GetDesc(&backBufferDesc);
         m_dxgiFormat = backBufferDesc.Format;
+		//Ishikawa test off screen rendering+++++++++++++++++++++++++++++++++++create texture2d
+		D3D11_TEXTURE2D_DESC textureDesc;
+		// Initialize the render target texture description.
+		ZeroMemory(&textureDesc, sizeof(textureDesc));
+
+		// Setup the render target texture description.
+		textureDesc.Width = 512;//textureWidth;
+		textureDesc.Height = 512; //textureHeight;
+		textureDesc.MipLevels = 1;
+		textureDesc.ArraySize = 1;
+		textureDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		//		textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		textureDesc.SampleDesc.Count = 1;
+		textureDesc.Usage = D3D11_USAGE_DEFAULT;
+		textureDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		textureDesc.CPUAccessFlags = 0;
+		textureDesc.MiscFlags = 0;// D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+		HRESULT hr2 = pDeviceResources->GetD3DDevice()->CreateTexture2D(&textureDesc, NULL, &m_d3dOffScreenTexture);
+		if (FAILED(hr2)) {
+			return;
+		}
+
+		D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
+		D3D11_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc;
+
+		renderTargetViewDesc.Format = textureDesc.Format;
+		renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		renderTargetViewDesc.Texture2D.MipSlice = 0;
+
+		hr2 = pDeviceResources->GetD3DDevice()->CreateRenderTargetView(*(&m_d3dOffScreenTexture), &renderTargetViewDesc, &m_d3dOffScreenRenderTargetView);
+
+		// Setup the description of the shader resource view.
+		shaderResourceViewDesc.Format = textureDesc.Format;
+		shaderResourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
+		shaderResourceViewDesc.Texture2D.MipLevels = 1;
+
+		// Create the shader resource view.
+		hr2 = device->CreateShaderResourceView(*(&m_d3dOffScreenTexture), &shaderResourceViewDesc, &m_shaderResourceView);
+		if (FAILED(hr2))
+		{
+			return;
+		}
+
+		// Create the sample state
+		D3D11_SAMPLER_DESC sampDesc;
+		ZeroMemory(&sampDesc, sizeof(sampDesc));
+		sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+		sampDesc.MinLOD = 0;
+		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+		hr2 = device->CreateSamplerState(&sampDesc, &m_SamplerLinear);
+		if (FAILED(hr2))
+			return;
+
+
+		D3D11_TEXTURE2D_DESC textureDesc_, *originDesc = new D3D11_TEXTURE2D_DESC();
+		m_d3dOffScreenTexture->GetDesc(originDesc);
+		ZeroMemory(&textureDesc_, sizeof(textureDesc_));
+		int Width = originDesc->Width;
+		int Height = originDesc->Height;
+		textureDesc_.Width = Width;
+		textureDesc_.Height = Height;
+		textureDesc_.MipLevels = 1;
+		textureDesc_.ArraySize = 1;
+		//textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		textureDesc_.Format = DXGI_FORMAT_R32_FLOAT;
+		//textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UINT;
+		textureDesc_.SampleDesc.Count = 1;
+		textureDesc_.SampleDesc.Quality = 0;
+		textureDesc_.Usage = D3D11_USAGE_STAGING;
+		textureDesc_.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		textureDesc_.MiscFlags = 0;
+
+		hr2 = pDeviceResources->GetD3DDevice()->CreateTexture2D(&textureDesc_, NULL, &m_textureBuf);
+		if (FAILED(hr2)) {
+			return;
+		}
+
+
+		//+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         // Check for render target size changes.
         Windows::Foundation::Size currentSize = m_holographicCamera->RenderTargetSize;
@@ -159,6 +243,7 @@ void DX::CameraResources::ReleaseResourcesForBackBuffer(DX::DeviceResources* pDe
 
     // Release camera-specific resources.
     m_d3dBackBuffer.Reset();
+	m_d3dOffScreenTexture.Reset();
     m_d3dRenderTargetView.Reset();
     m_d3dDepthStencilView.Reset();
     m_viewProjectionConstantBuffer.Reset();
@@ -253,6 +338,91 @@ void DX::CameraResources::UpdateViewProjectionBuffer(
         m_framePending = true;
     }
 }
+
+// Updates the view/projection constant buffer for a holographic camera.
+void DX::CameraResources::UpdateViewProjectionBuffer_(
+	std::shared_ptr<DX::DeviceResources> deviceResources,
+	HolographicCameraPose^ cameraPose,
+	SpatialCoordinateSystem^ coordinateSystem
+)
+{
+	// The system changes the viewport on a per-frame basis for system optimizations.
+	m_d3dViewport = CD3D11_VIEWPORT(
+		0.0F, 0.0F, 512.0F, 512.0F
+	);
+
+	// The projection transform for each frame is provided by the HolographicCameraPose.
+	HolographicStereoTransform cameraProjectionTransform = cameraPose->ProjectionTransform;
+
+	// Get a container object with the view and projection matrices for the given
+	// pose in the given coordinate system.
+	Platform::IBox<HolographicStereoTransform>^ viewTransformContainer = cameraPose->TryGetViewTransform(coordinateSystem);
+
+	XMFLOAT3 eyepos(0, 1.0, 0), direction(0, -1, 0), upward(1, 0, 0);
+
+	// If TryGetViewTransform returns a null pointer, that means the pose and coordinate
+	// system cannot be understood relative to one another; content cannot be rendered
+	// in this coordinate system for the duration of the current frame.
+	// This usually means that positional tracking is not active for the current frame, in
+	// which case it is possible to use a SpatialLocatorAttachedFrameOfReference to render
+	// content that is not world-locked instead.
+	ViewProjectionConstantBuffer viewProjectionConstantBufferData;
+	bool viewTransformAcquired = viewTransformContainer != nullptr;
+	if (viewTransformAcquired)
+	{
+		// Otherwise, the set of view transforms can be retrieved.
+		HolographicStereoTransform viewCoordinateSystemTransform = viewTransformContainer->Value;
+
+		// Update the view matrices. Holographic cameras (such as Microsoft HoloLens) are
+		// constantly moving relative to the world. The view matrices need to be updated
+		// every frame.
+		XMStoreFloat4x4(
+			&viewProjectionConstantBufferData.viewProjection[0],
+			//XMMatrixTranspose(XMLoadFloat4x4(&viewCoordinateSystemTransform.Left) * XMLoadFloat4x4(&cameraProjectionTransform.Left))
+			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(12.0f, 12.0f, 0.0f, 3.0f))
+		);
+		XMStoreFloat4x4(
+			&viewProjectionConstantBufferData.viewProjection[1],
+			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(12.0f, 12.0f, 0.0f, 3.0f))
+		);
+
+		float4x4 viewInverse;
+		bool invertible = Windows::Foundation::Numerics::invert(viewCoordinateSystemTransform.Left, &viewInverse);
+		if (invertible)
+		{
+			// For the purposes of this sample, use the camera position as a light source.
+			float4 cameraPosition = float4(viewInverse.m41, viewInverse.m42, viewInverse.m43, 0.f);
+			float4 lightPosition = cameraPosition + float4(0.f, 0.25f, 0.f, 0.f);
+
+			XMStoreFloat4(&viewProjectionConstantBufferData.cameraPosition, DirectX::XMLoadFloat4(&cameraPosition));
+			XMStoreFloat4(&viewProjectionConstantBufferData.lightPosition, DirectX::XMLoadFloat4(&lightPosition));
+		}
+	}
+
+	// Use the D3D device context to update Direct3D device-based resources.
+	const auto context = deviceResources->GetD3DDeviceContext();
+
+	// Loading is asynchronous. Resources must be created before they can be updated.
+	if (context == nullptr || m_viewProjectionConstantBuffer == nullptr || !viewTransformAcquired)
+	{
+		m_framePending = false;
+	}
+	else
+	{
+		// Update the view and projection matrices.
+		context->UpdateSubresource(
+			m_viewProjectionConstantBuffer.Get(),
+			0,
+			nullptr,
+			&viewProjectionConstantBufferData,
+			0,
+			0
+		);
+
+		m_framePending = true;
+	}
+}
+
 
 // Gets the view-projection constant buffer for the HolographicCamera and attaches it
 // to the shader pipeline.

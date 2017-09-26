@@ -33,7 +33,7 @@ namespace WindowsHolographicCodeSamples
             Windows::Perception::Spatial::SpatialCoordinateSystem^ coordinateSystem
             );
         void Render(bool isStereo, bool useWireframe);
-
+		void OffRender();
         bool HasSurface(Platform::Guid id);
         void AddSurface(Platform::Guid id, Windows::Perception::Spatial::Surfaces::SpatialSurfaceInfo^ newSurface);
         void UpdateSurface(Platform::Guid id, Windows::Perception::Spatial::Surfaces::SpatialSurfaceInfo^ newSurface);
@@ -58,6 +58,7 @@ namespace WindowsHolographicCodeSamples
         Microsoft::WRL::ComPtr<ID3D11GeometryShader>    m_geometryShader;
         Microsoft::WRL::ComPtr<ID3D11PixelShader>       m_lightingPixelShader;
         Microsoft::WRL::ComPtr<ID3D11PixelShader>       m_colorPixelShader;
+		Microsoft::WRL::ComPtr<ID3D11PixelShader>       m_depthShader;
 
         // The set of surfaces in the collection.
         std::map<Platform::Guid, SurfaceMesh>           m_meshCollection;

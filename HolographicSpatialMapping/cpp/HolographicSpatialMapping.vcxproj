@@ -140,25 +140,25 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="..\..\..\SharedContent\media\microsoft-sdk.png">
+    <Image Include="media\microsoft-sdk.png">
       <Link>Assets\microsoft-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\smalltile-sdk.png">
+    <Image Include="media\smalltile-sdk.png">
       <Link>Assets\smallTile-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\splash-sdk.png">
+    <Image Include="media\splash-sdk.png">
       <Link>Assets\splash-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\squaretile-sdk.png">
+    <Image Include="media\squaretile-sdk.png">
       <Link>Assets\squareTile-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\storelogo-sdk.png">
+    <Image Include="media\storelogo-sdk.png">
       <Link>Assets\storeLogo-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\tile-sdk.png">
+    <Image Include="media\tile-sdk.png">
       <Link>Assets\tile-sdk.png</Link>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\windows-sdk.png">
+    <Image Include="media\windows-sdk.png">
       <Link>Assets\windows-sdk.png</Link>
     </Image>
   </ItemGroup>

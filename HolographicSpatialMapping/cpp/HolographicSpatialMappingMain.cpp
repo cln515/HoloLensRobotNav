@@ -16,6 +16,16 @@
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <Collection.h>
 
+#define HOSTNAME "localhost"
+#define PORT "1234"
+#define PORT2 "12034"
+#define PORT3 "12340"
+#define HEADER_CAMERA 10
+#define HEADER_IMAGE 20
+#define HEADER_CHANC 30
+#define HEADER_POSLOST 40
+#define HEADER_TRACKLOST 50
+#define HEADER_DEPTHSTREAM 100
 
 using namespace HolographicSpatialMapping;
 using namespace WindowsHolographicCodeSamples;
@@ -30,7 +40,109 @@ using namespace Windows::Graphics::Holographic;
 using namespace Windows::Perception::Spatial;
 using namespace Windows::Perception::Spatial::Surfaces;
 using namespace Windows::UI::Input::Spatial;
+using namespace Windows::Networking;
+using namespace Windows::Media::Capture;
+using namespace Windows::Media::Render;
+using namespace Windows::Media::MediaProperties;
 using namespace std::placeholders;
+
+
+Windows::Storage::Streams::DataWriter^							 writer, ^imagewriter, ^audiowriter;
+Windows::Storage::Streams::DataReader^							reader;
+Windows::Networking::Sockets::StreamSocket^					sock, ^imagesock, ^commandsock, ^audiosock;
+bool ack = false, ack2 = false, ack3 = false, posfailed = false, m_depthStreamMode = false, checkReceive = true, connecting = false, audioack = false, recordPreparing = false;
+
+void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networking::Sockets::StreamSocket^ sock_) {
+	create_task(reader->LoadAsync(sizeof(UINT32))).then([reader_, sock_](unsigned int size)
+	{
+		if (size < sizeof(UINT32))
+		{
+			// The underlying socket was closed before we were able to read the whole data.
+			cancel_current_task();
+		}
+
+		unsigned int stringLength = reader->ReadUInt32();
+		if (stringLength == 4) {
+			ack = true;
+		}
+		if (stringLength == 8)ack2 = true;
+		if (stringLength == 12)posfailed = true;
+		if (stringLength == 16)m_depthStreamMode = true;
+		if (stringLength == 20)checkReceive = true;
+		receiveLoop(reader_, sock_);
+	});
+}
+
+void OnEvent(Windows::Networking::Sockets::StreamSocketListener^ listener,
+	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
+	writer = ref new Windows::Storage::Streams::DataWriter(object->Socket->OutputStream);
+	reader = ref new Windows::Storage::Streams::DataReader(object->Socket->InputStream);
+	sock = object->Socket;
+	connecting = true;
+	receiveLoop(reader, sock);
+};
+
+void OnEvent2(Windows::Networking::Sockets::StreamSocketListener^ listener,
+	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
+	audiowriter = ref new Windows::Storage::Streams::DataWriter(object->Socket->OutputStream);
+	audiosock = object->Socket;
+	audioack = true;
+};
+void OnEvent3(Windows::Networking::Sockets::StreamSocketListener^ listener,
+	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
+	commandsock = object->Socket;
+	reader = ref new Windows::Storage::Streams::DataReader(object->Socket->InputStream);
+};
+
+inline float SIGN(float x) { return (x >= 0.0f) ? +1.0f : -1.0f; };
+inline float NORM(float a, float b, float c, float d) { return sqrt(a * a + b * b + c * c + d * d); };
+
+float4 mat2quarternion(float4x4 m) {
+	float4 q;
+	q.x = (m.m11 + m.m22 + m.m33 + 1.0f) / 4.0f;
+	q.y = (m.m11 - m.m22 - m.m33 + 1.0f) / 4.0f;
+	q.z = (-m.m11 + m.m22 - m.m33 + 1.0f) / 4.0f;
+	q.w = (-m.m11 - m.m22 + m.m33 + 1.0f) / 4.0f;
+	if (q.x < 0.0f) q.x = 0.0f;
+	if (q.y < 0.0f) q.y = 0.0f;
+	if (q.z < 0.0f) q.z = 0.0f;
+	if (q.w < 0.0f) q.w = 0.0f;
+	q.x = sqrt(q.x);
+	q.y = sqrt(q.y);
+	q.z = sqrt(q.z);
+	q.w = sqrt(q.w);
+	if (q.x >= q.y && q.x >= q.z && q.x >= q.w) {
+		q.x *= +1.0f;
+		q.y *= SIGN(m.m32 - m.m23);
+		q.z *= SIGN(m.m13 - m.m31);
+		q.w *= SIGN(m.m21 - m.m12);
+	}
+	else if (q.y >= q.x && q.y >= q.z && q.y >= q.w) {
+		q.x *= SIGN(m.m32 - m.m23);
+		q.y *= +1.0f;
+		q.z *= SIGN(m.m21 + m.m12);
+		q.w *= SIGN(m.m13 + m.m31);
+	}
+	else if (q.z >= q.x && q.z >= q.y && q.z >= q.w) {
+		q.x *= SIGN(m.m13 - m.m31);
+		q.y *= SIGN(m.m21 + m.m12);
+		q.z *= +1.0f;
+		q.w *= SIGN(m.m32 + m.m23);
+	}
+	else if (q.w >= q.x && q.w >= q.y && q.w >= q.z) {
+		q.x *= SIGN(m.m21 - m.m12);
+		q.y *= SIGN(m.m31 + m.m13);
+		q.z *= SIGN(m.m32 + m.m23);
+		q.w *= +1.0f;
+	}
+	float rad = NORM(q.x, q.y, q.z, q.w);
+	q.x /= rad;
+	q.y /= rad;
+	q.z /= rad;
+	q.w /= rad;
+
+	return q;
+}
 
 // Loads and initializes application assets when the application is loaded.
 HolographicSpatialMappingMain::HolographicSpatialMappingMain(
@@ -39,6 +151,79 @@ HolographicSpatialMappingMain::HolographicSpatialMappingMain(
 {
     // Register to be notified if the device is lost or recreated.
     m_deviceResources->RegisterDeviceNotify(this);
+
+	HostName^ hostName;
+	try
+	{
+		hostName = ref new HostName(HOSTNAME);
+	}
+	catch (InvalidArgumentException^ e)
+	{
+		return;
+	}
+
+	listener = ref new Sockets::StreamSocketListener();
+	OnConnection = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
+		(OnEvent);
+
+	listener->ConnectionReceived += OnConnection;
+
+	listener->Control->KeepAlive = false;
+	create_task(listener->BindServiceNameAsync(PORT)).then([this](task<void> previousTask)
+		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
+	{
+		try
+		{
+			// Try getting an exception.
+			previousTask.get();
+
+		}
+		catch (Exception^ exception)
+		{
+		}
+	});
+	listener2 = ref new Sockets::StreamSocketListener();
+	OnConnection2 = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
+		(OnEvent2);
+
+	listener2->ConnectionReceived += OnConnection2;
+
+	listener2->Control->KeepAlive = false;
+	create_task(listener2->BindServiceNameAsync(PORT2)).then([this](task<void> previousTask)
+		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
+	{
+		try
+		{
+			// Try getting an exception.
+			previousTask.get();
+
+		}
+		catch (Exception^ exception)
+		{
+		}
+	});
+
+	listener3 = ref new Sockets::StreamSocketListener();
+	OnConnection3 = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
+		(OnEvent3);
+
+	listener3->ConnectionReceived += OnConnection3;
+
+	listener3->Control->KeepAlive = false;
+	create_task(listener3->BindServiceNameAsync(PORT3)).then([this](task<void> previousTask)
+		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
+	{
+		try
+		{
+			// Try getting an exception.
+			previousTask.get();
+
+		}
+		catch (Exception^ exception)
+		{
+		}
+	});
+
 }
 
 void HolographicSpatialMappingMain::SetHolographicSpace(
@@ -57,6 +242,12 @@ void HolographicSpatialMappingMain::SetHolographicSpace(
 
     // Use the default SpatialLocator to track the motion of the device.
     m_locator = SpatialLocator::GetDefault();
+
+	m_locatabilityChangedToken =
+		m_locator->LocatabilityChanged +=
+		ref new Windows::Foundation::TypedEventHandler<SpatialLocator^, Object^>(
+			std::bind(&HolographicSpatialMappingMain::OnLocatabilityChanged, this, _1, _2)
+			);
 
     // This sample responds to changes in the positional tracking state by cancelling deactivation 
     // of positional tracking.
@@ -96,6 +287,7 @@ void HolographicSpatialMappingMain::SetHolographicSpace(
     // This code sample uses a DeviceAttachedFrameOfReference to have the Spatial Mapping surface observer
     // follow along with the device's location.
     m_referenceFrame = m_locator->CreateAttachedFrameOfReferenceAtCurrentHeading();
+	m_stationaryReferenceFrame = m_locator->CreateStationaryFrameOfReferenceAtCurrentLocation();
 
     // Notes on spatial tracking APIs:
     // * Stationary reference frames are designed to provide a best-fit position relative to the
@@ -212,9 +404,84 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
     // associated with the current frame. Later, this coordinate system is used for
     // for creating the stereo view matrices when rendering the sample content.
     SpatialCoordinateSystem^ currentCoordinateSystem = m_referenceFrame->GetStationaryCoordinateSystemAtTimestamp(prediction->Timestamp);
+	
+	if (connecting) {
+		m_spatialAnchorHelper->ClearAnchorStore();
+		m_spatialId = 0;
+		connecting = false;
+	}
+    
+	// Only create a surface observer when you need to - do not create a new one each frame.
+    
+	if ((ack || ack3 || (m_depthStreamMode)) && !m_positionLost) {
 
-    // Only create a surface observer when you need to - do not create a new one each frame.
-    if (m_surfaceObserver == nullptr)
+		if (ack || ack3)m_renderAndSend = true;
+		//m_spatialId = 0;
+		auto cameraPose = prediction->CameraPoses->GetAt(0);
+		Platform::IBox<HolographicStereoTransform>^ viewTransformContainer = cameraPose->TryGetViewTransform(currentCoordinateSystem);
+		ViewProjectionConstantBuffer viewProjectionConstantBufferData;
+		bool viewTransformAcquired = viewTransformContainer != nullptr;
+		if (viewTransformAcquired)
+		{
+			HolographicStereoTransform viewCoordinateSystemTransform = viewTransformContainer->Value;
+			float4x4 camPosition = viewCoordinateSystemTransform.Left;
+			float4x4 viewInverse;
+			bool invertible = Windows::Foundation::Numerics::invert(camPosition, &viewInverse);
+			if (invertible)
+			{
+				//				float xp = viewInverse.m41, yp = viewInverse.m42, zp = viewInverse.m43;
+				const float3 campos(viewInverse.m41, viewInverse.m42, viewInverse.m43);
+				float rad = sqrt(viewInverse.m31*viewInverse.m31 + viewInverse.m33*viewInverse.m33);
+				float theta = acos(viewInverse.m33 / rad);
+				theta = viewInverse.m31 < 0 ? -theta : theta;
+				const float3 camdirection(viewInverse.m31 / rad, 0, viewInverse.m33 / rad);
+				const quaternion q(0, sin(theta / 2), 0, cos(theta / 2));
+				SpatialAnchor^ anchor = SpatialAnchor::TryCreateRelativeTo(currentCoordinateSystem, campos, q);
+				//m_uniqueSpatialAnchor = anchor;
+				if ((anchor != nullptr) && (m_spatialAnchorHelper != nullptr))
+				{
+					if (ack3)m_spatialId++;
+					if (ack) {
+						m_spatialAnchorHelper->ClearAnchorStore();
+						m_spatialId = 0;
+						m_recovering = false;
+					}
+					// In this example, we store the anchor in an IMap.
+					auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
+
+					// Create an identifier for the anchor.
+					std::wstringstream ss;
+					ss << "anchor_" << m_spatialId;
+					std::wstring w_char = ss.str();
+
+					m_newKey = ref new String(w_char.c_str());
+
+					SaveAppState();
+					if (ack) {
+						m_baseAnchor = anchor;
+						currentCoordinateSystem = m_baseAnchor->CoordinateSystem;
+						anchorMap->Insert(m_newKey->ToString(), anchor);
+					}
+					else if (ack3) {
+						m_nextAnchor = anchor;
+						currentCoordinateSystem = m_nextAnchor->CoordinateSystem;
+					}
+					else {
+						m_anchor = anchor;
+						currentCoordinateSystem = m_anchor->CoordinateSystem;
+					}
+				}
+			}
+
+		}
+		ack = false;
+		ack3 = false;
+	}
+	
+	SpatialCoordinateSystem^ stationaryCoordinateSystem = m_stationaryReferenceFrame->CoordinateSystem;
+	SpatialAnchor^ anchor;
+
+	if (m_surfaceObserver == nullptr)
     {
         // Initialize the Surface Observer using a valid coordinate system.
         if (!m_spatialPerceptionAccessRequested)
@@ -315,13 +582,65 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
     }
 
 #ifdef DRAW_SAMPLE_CONTENT
-    // Check for new input state since the last frame.
-    SpatialInteractionSourceState^ pointerState = m_spatialInputHandler->CheckForInput();
-    if (pointerState != nullptr)
-    {
-        // When a Pressed gesture is detected, the rendering mode will be changed to wireframe.
-        m_drawWireframe = !m_drawWireframe;
-    }
+	// Check for new input state since the last frame.
+	SpatialInteractionSourceState^ pointerState = m_spatialInputHandler->CheckForInput();
+	if (pointerState != nullptr)
+	{
+		// When a Pressed gesture is detected, the rendering mode will be changed to wireframe.
+
+		m_drawWireframe = !m_drawWireframe;
+		SpatialPointerPose^ pointerPose = pointerState->TryGetPointerPose(stationaryCoordinateSystem);
+		if (pointerPose != nullptr && commandsock != nullptr)
+		{
+			//const float3 headPosition = pointerPose->Head->Position;
+			// When a Pressed gesture is detected, the anchor will be created two meters in front of the user.
+
+			// Get the gaze direction relative to the given coordinate system.
+			const float3 headPosition = pointerPose->Head->Position;
+			const float3 headDirection = pointerPose->Head->ForwardDirection;
+
+			// The anchor position in the StationaryReferenceFrame.
+			static const float distanceFromUser = 2.0f; // meters
+			const float3 gazeAtTwoMeters = headPosition + (distanceFromUser * headDirection);
+
+			// Create the anchor at position.
+			SpatialAnchor^ anchor = SpatialAnchor::TryCreateRelativeTo(currentCoordinateSystem, gazeAtTwoMeters);
+			//m_uniqueSpatialAnchor = anchor;
+			if ((anchor != nullptr) && (m_spatialAnchorHelper != nullptr))
+			{
+				// In this example, we store the anchor in an IMap.
+				auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
+
+				// Create an identifier for the anchor.
+				String^ id = ref new String(L"HolographicSpatialAnchor_Unique_");
+
+				anchorMap->Insert(id->ToString(), anchor);
+				SaveAppState();
+				if (m_baseAnchor == nullptr) {
+					m_baseAnchor = anchor;
+				}
+				else {
+					m_nextAnchor = m_baseAnchor;
+				}
+
+			}
+
+
+		}
+		if (imagesock != nullptr)m_renderAndSend = true;
+	}
+	if (posfailed) {
+		m_spatialId--;
+		m_nextAnchor = nullptr;
+		posfailed = false;
+	}
+	if (ack2) {
+		auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
+		anchorMap->Insert(m_newKey->ToString(), m_nextAnchor);
+		m_baseAnchor = m_nextAnchor;
+		m_nextAnchor = nullptr;
+		ack2 = false;
+	}
 #endif
 
     m_timer.Tick([&] ()
@@ -331,6 +650,162 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 #endif
     });
 
+	if (writer != nullptr) {
+
+
+		auto cameraPose = prediction->CameraPoses->GetAt(0);
+		Platform::IBox<HolographicStereoTransform>^ viewTransformContainer = cameraPose->TryGetViewTransform(stationaryCoordinateSystem);
+		ViewProjectionConstantBuffer viewProjectionConstantBufferData;
+		bool viewTransformAcquired = viewTransformContainer != nullptr;
+		if (viewTransformAcquired)//get Camera pose in m_baseAnchor coordinate system, 
+		{
+			HolographicStereoTransform viewCoordinateSystemTransform = viewTransformContainer->Value;
+			float4x4 camPosition = viewCoordinateSystemTransform.Left;
+			float4x4 viewInverse;
+			bool posLost = false;
+			if (m_baseAnchor != nullptr) {
+				float4x4 anchorSpaceToCurrentCoordinateSystem;
+				SpatialCoordinateSystem^ anchorSpace = m_baseAnchor->CoordinateSystem;
+				const auto tryTransform = anchorSpace->TryGetTransformTo(stationaryCoordinateSystem);
+				if (tryTransform != nullptr)
+				{
+					anchorSpaceToCurrentCoordinateSystem = tryTransform->Value;
+					camPosition = anchorSpaceToCurrentCoordinateSystem* camPosition;//->camPotition: base coordinates(spatial anchor coordinates)2camera coordinates 
+
+				}
+				else posLost = true;
+
+			}
+
+			bool invertible = Windows::Foundation::Numerics::invert(camPosition, &viewInverse);
+			if (invertible)
+			{
+
+				float xp = viewInverse.m41, yp = viewInverse.m42, zp = viewInverse.m43;
+				float thres = 16;
+				if (m_baseAnchor != nullptr && ((m_nextAnchor == nullptr && xp*xp + yp*yp + zp*zp > thres) || m_recovering)) {
+					//get anchor map
+					thres = m_recovering ? thres * 2 : thres;
+					auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
+					double minimumerr = 100;
+					IKeyValuePair<String^, SpatialAnchor^>^ bestPair;
+					for each(auto& pair in anchorMap) {
+						SpatialAnchor^ candidateAnchor = pair->Value;
+						float4x4 anchorSpaceToCurrentCoordinateSystem;
+						SpatialCoordinateSystem^ anchorSpace = candidateAnchor->CoordinateSystem;
+						const auto tryTransform = anchorSpace->TryGetTransformTo(stationaryCoordinateSystem);
+						float4x4 camPos_inAnchor;
+						if (tryTransform != nullptr)
+						{
+							anchorSpaceToCurrentCoordinateSystem = tryTransform->Value;
+							camPos_inAnchor = anchorSpaceToCurrentCoordinateSystem* viewCoordinateSystemTransform.Left;//->camPotition: base coordinates(spatial anchor coordinates)2camera coordinates 	
+							float4x4 camPosInv;
+							bool invertible_ = Windows::Foundation::Numerics::invert(camPos_inAnchor, &camPosInv);
+							if (invertible_) {
+								float xp = camPosInv.m41, yp = camPosInv.m42, zp = camPosInv.m43;
+								double err = xp*xp + yp*yp + zp*zp;
+								if (err < minimumerr) {
+									bestPair = pair;
+									minimumerr = err;
+								}
+							}
+						}
+					}
+					if (minimumerr < thres) {
+						m_baseAnchor = bestPair->Value;
+						writer->WriteUInt32(HEADER_CHANC);
+						Sockets::StreamSocket^ socket_ = sock;
+						String^ stringToSend = bestPair->Key;
+						writer->WriteInt32(writer->MeasureString(stringToSend));
+						writer->WriteString(stringToSend);
+						m_recovering = false;
+						create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
+						{
+							try
+							{
+								// Try getting an exception.
+								writeTask.get();
+							}
+							catch (Exception^ exception)
+							{
+							}
+						});
+					}
+					else {
+						if (!m_recovering)ack3 = true;
+					}
+				}
+				//std::stringstream ss;
+				//ss << xp << " " << yp << " " << zp;
+				//std::string s_str = ss.str();
+				//std::wstring wid_str = std::wstring(s_str.begin(), s_str.end());
+				//const wchar_t* w_char = wid_str.c_str();
+				//String^ stringToSend = ref new String(w_char);
+				if (posLost) {
+					writer->WriteUInt32(HEADER_POSLOST);
+					Sockets::StreamSocket^ socket_ = sock;
+					create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
+					{
+						try
+						{
+							// Try getting an exception.
+							writeTask.get();
+						}
+						catch (Exception^ exception)
+						{
+						}
+					});
+
+				}
+				else if ((!m_depthStreamMode&&m_nextAnchor == nullptr) || (m_depthStreamMode && (checkReceive && m_nextAnchor == nullptr))) {
+					checkReceive = false;
+					m_depthReceived = true;
+					writer->WriteUInt32(HEADER_CAMERA);
+					Sockets::StreamSocket^ socket_ = sock;
+					Platform::Array<unsigned char>^ buffer = ref new Platform::Array<unsigned char>(sizeof(float) * 16);
+					float datamat[16] = { viewInverse.m11,viewInverse.m12,viewInverse.m13,viewInverse.m14,
+						viewInverse.m21,viewInverse.m22,viewInverse.m23,viewInverse.m24,
+						viewInverse.m31,viewInverse.m32,viewInverse.m33,viewInverse.m34,
+						viewInverse.m41,viewInverse.m42,viewInverse.m43,viewInverse.m44, };
+					void* p = datamat;
+					memcpy(buffer->Data, p, sizeof(float) * 16);
+					writer->WriteBytes(buffer);
+
+					create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
+					{
+						try
+						{
+							// Try getting an exception.
+							writeTask.get();
+						}
+						catch (Exception^ exception)
+						{
+						}
+					});
+				}
+			}
+			// Write first the length of the string a UINT32 value followed up by the string. The operation will just store 
+			// the data locally.
+
+		}
+		else {//tracking lost status
+			writer->WriteUInt32(HEADER_TRACKLOST);
+			Sockets::StreamSocket^ socket_ = sock;
+			create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
+			{
+				try
+				{
+					// Try getting an exception.
+					writeTask.get();
+				}
+				catch (Exception^ exception)
+				{
+				}
+			});
+
+
+		}
+	}
     // This sample uses default image stabilization settings, and does not set the focus point.
 
     // The holographic frame will be used to get up-to-date view and projection matrices and
@@ -370,6 +845,7 @@ bool HolographicSpatialMappingMain::Render(
             // Get the device context.
             const auto context = m_deviceResources->GetD3DDeviceContext();
             const auto depthStencilView = pCameraResources->GetDepthStencilView();
+			const auto osdepthStencilView = pCameraResources->GetOffScreenDepthStencilView();
 
             // Set render targets to the current holographic camera.
             ID3D11RenderTargetView *const targets[1] = { pCameraResources->GetBackBufferRenderTargetView() };
@@ -396,6 +872,95 @@ bool HolographicSpatialMappingMain::Render(
             }
 #endif
             atLeastOneCameraRendered = true;
+			//Ishikawa test rendering target: off screen buffer 
+			if ((m_renderAndSend || (m_depthStreamMode&&m_depthReceived)) && !m_positionLost) {
+				ID3D11RenderTargetView *const targeto[1] = { pCameraResources->GetOffScreenRenderTargetView() };
+				context->OMSetRenderTargets(1, targeto, osdepthStencilView);
+
+				// Clear the back buffer and depth stencil view.
+				context->ClearRenderTargetView(targeto[0], DirectX::Colors::Gray);
+				context->ClearDepthStencilView(osdepthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+				// The view and projection matrices for each holographic camera will change
+				// every frame. This function refreshes the data in the constant buffer for
+				// the holographic camera indicated by cameraPose.
+				pCameraResources->UpdateViewProjectionBuffer_(m_deviceResources, cameraPose, currentCoordinateSystem);
+
+				if (cameraActive)
+				{
+					m_meshRenderer->OffRender();
+
+					// Draw the sample hologram.
+					//ID3D11RenderTargetView *const targeto2[1] = { pCameraResources->GetOffScreenRenderTargetView() };
+					//context->OMSetRenderTargets(1, targeto2, osdepthStencilView);
+
+					//m_meshRenderer->EdgeExtraction();
+				}
+
+
+				D3D11_MAPPED_SUBRESOURCE* mapped = new D3D11_MAPPED_SUBRESOURCE();
+				//ID3D11Texture2D* renderedTexture = pCameraResources->GetBackBufferTexture2D();
+				ID3D11Texture2D* renderedTexture = pCameraResources->GetOffTexture2D();
+				//renderedTexture->GetPrivateData();
+				ID3D11Texture2D* textureBuf = pCameraResources->GetCopiedTexture2D();
+				D3D11_TEXTURE2D_DESC *originDesc = new D3D11_TEXTURE2D_DESC();
+
+				textureBuf->GetDesc(originDesc);
+				int Width = originDesc->Width;
+				int Height = originDesc->Height;
+				
+				m_deviceResources->GetD3DDeviceContext()->CopyResource(textureBuf, renderedTexture);
+				DX::ThrowIfFailed(
+					m_deviceResources->GetD3DDeviceContext()->Map(textureBuf, 0, D3D11_MAP_READ, 0, mapped)
+				);
+				
+				Platform::Array<unsigned char>^ buffer = ref new Platform::Array<unsigned char>(mapped->RowPitch*Height);
+				memcpy(buffer->Data, mapped->pData, mapped->RowPitch*Height);
+
+				if (writer != nullptr) {
+					if (m_renderAndSend) {
+						m_renderAndSend = false;
+						writer->WriteUInt32(HEADER_IMAGE);
+						String^ stringToSend = m_newKey;
+						writer->WriteInt32(writer->MeasureString(stringToSend));
+						writer->WriteString(stringToSend);
+					}
+					else {
+						writer->WriteUInt32(HEADER_DEPTHSTREAM);
+						//checkReceive = false;
+						m_depthReceived = false;
+					}
+					writer->WriteUInt32(mapped->RowPitch);
+					writer->WriteUInt32(Height);
+					writer->WriteBytes(buffer);
+					delete buffer;
+					delete mapped;
+					//imagewriter->WriteBuffer(buffer);
+					Sockets::StreamSocket^ socket_ = imagesock;
+
+					create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
+					{
+						try
+						{
+							// Try getting an exception.
+							writeTask.get();
+						}
+						catch (Exception^ exception)
+						{
+						}
+					});
+
+				}
+				else {
+					delete buffer;
+					delete mapped;
+
+				}
+
+			}
+			else if (m_positionLost) {
+				m_nextAnchor = nullptr;
+			}
         }
 
         return atLeastOneCameraRendered;
@@ -409,7 +974,10 @@ void HolographicSpatialMappingMain::SaveAppState()
 
 void HolographicSpatialMappingMain::LoadAppState()
 {
-    // This sample does not persist any state between sessions.
+	if (m_spatialAnchorHelper != nullptr)
+	{
+		m_spatialAnchorHelper->TrySaveToAnchorStore();
+	}
 }
 
 // Notifies classes that use Direct3D device resources that the device resources
@@ -419,6 +987,7 @@ void HolographicSpatialMappingMain::OnDeviceLost()
 #ifdef DRAW_SAMPLE_CONTENT
     m_meshRenderer->ReleaseDeviceDependentResources();
 #endif
+	SaveAppState();
 }
 
 // Notifies classes that use Direct3D device resources that the device resources
@@ -460,6 +1029,7 @@ void HolographicSpatialMappingMain::OnCameraAdded(
         // the deferral is completed.
         deferral->Complete();
     });
+	LoadAnchorStore();
 }
 
 void HolographicSpatialMappingMain::OnCameraRemoved(
@@ -473,4 +1043,138 @@ void HolographicSpatialMappingMain::OnCameraRemoved(
     // deallocating resources for this camera. At 60 frames per second this wait should
     // not take long.
     m_deviceResources->RemoveHolographicCamera(args->Camera);
+}
+
+void HolographicSpatialMappingMain::LoadAnchorStore() {
+
+	m_spatialAnchorHelper = create_task(SpatialAnchorManager::RequestStoreAsync())
+		.then([](task<SpatialAnchorStore^> previousTask)
+	{
+		std::shared_ptr<SampleSpatialAnchorHelper> newHelper = nullptr;
+
+
+		try
+		{
+			SpatialAnchorStore^ anchorStore = previousTask.get();
+
+			// Once the SpatialAnchorStore has been loaded by the system, we can create our helper class.
+
+			// Using "new" to access private constructor
+			newHelper = std::shared_ptr<SampleSpatialAnchorHelper>(new SampleSpatialAnchorHelper(anchorStore));
+
+
+			newHelper->LoadFromAnchorStore();
+
+			// Now we can load anchors from the store.
+
+		}
+		catch (Exception^ exception)
+		{
+			/*		PrintWstringToDebugConsole(
+			std::wstring(L"Exception while loading the anchor store: ") +
+			exception->Message->Data() +
+			L"\n"
+			);*/
+		}
+
+		// Return the initialized class instance.
+		return newHelper;
+	}).get();
+
+}
+
+HolographicSpatialMappingMain::SampleSpatialAnchorHelper::SampleSpatialAnchorHelper(SpatialAnchorStore^ anchorStore)
+{
+	m_anchorStore = anchorStore;
+	m_anchorMap = ref new Platform::Collections::Map<String^, SpatialAnchor^>();
+}
+
+bool HolographicSpatialMappingMain::SampleSpatialAnchorHelper::TrySaveToAnchorStore()
+{
+	// This function returns true if all the anchors in the in-memory collection are saved to the anchor
+	// store. If zero anchors are in the in-memory collection, we will still return true because the
+	// condition has been met.
+	bool success = true;
+
+	// If access is denied, 'anchorStore' will not be obtained.
+	if (m_anchorStore != nullptr)
+	{
+		for each (auto& pair in m_anchorMap)
+		{
+			auto const& id = pair->Key;
+			auto const& anchor = pair->Value;
+
+			// Try to save the anchors.
+			if (!m_anchorStore->TrySave(id, anchor))
+			{
+				// This may indicate the anchor ID is taken, or the anchor limit is reached for the app.
+				success = false;
+			}
+		}
+	}
+
+	return success;
+}
+
+void HolographicSpatialMappingMain::SampleSpatialAnchorHelper::LoadFromAnchorStore()
+{
+	// If access is denied, 'anchorStore' will not be obtained.
+	if (m_anchorStore != nullptr)
+	{
+		// Get all saved anchors.
+		auto anchorMapView = m_anchorStore->GetAllSavedAnchors();
+		for each (auto const& pair in anchorMapView)
+		{
+			auto const& id = pair->Key;
+			auto const& anchor = pair->Value;
+			m_anchorMap->Insert(id, anchor);
+		}
+	}
+}
+
+void HolographicSpatialMappingMain::SampleSpatialAnchorHelper::ClearAnchorStore()
+{
+	// If access is denied, 'anchorStore' will not be obtained.
+	if (m_anchorStore != nullptr)
+	{
+		// Clear all anchors from the store.
+		m_anchorMap->Clear();
+		m_anchorStore->Clear();
+	}
+}
+
+void HolographicSpatialMappingMain::OnLocatabilityChanged(SpatialLocator^ sender, Object^ args)
+{
+	String^ mes = sender->Locatability.ToString();
+	switch (sender->Locatability)
+	{
+	case SpatialLocatability::Unavailable:
+		// Holograms cannot be rendered.
+	{
+		String^ message = L"Warning! Positional tracking is " +
+			sender->Locatability.ToString() + L".\n";
+		OutputDebugStringW(message->Data());
+	}
+	break;
+
+	// In the following three cases, it is still possible to place holograms using a
+	// SpatialLocatorAttachedFrameOfReference.
+	case SpatialLocatability::PositionalTrackingActivating:
+		// The system is preparing to use positional tracking.
+
+	case SpatialLocatability::OrientationOnly:
+		// Positional tracking has not been activated.
+
+	case SpatialLocatability::PositionalTrackingInhibited:
+		// Positional tracking is temporarily inhibited. User action may be required
+		// in order to restore positional tracking.
+		m_positionLost = true;
+		break;
+
+	case SpatialLocatability::PositionalTrackingActive:
+		// Positional tracking is active. World-locked content can be rendered.
+		m_recovering = true;
+		m_positionLost = false;
+		break;
+	}
 }

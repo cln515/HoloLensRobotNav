@@ -20,6 +20,11 @@
 #include "Common\DeviceResources.h"
 #include "Common\StepTimer.h"
 
+#include <windows.networking.sockets.h>
+#include <windows.storage.streams.h>
+#include <sstream>
+#include <iostream>
+
 #ifdef DRAW_SAMPLE_CONTENT
 #include "Content\SpatialInputHandler.h"
 #include "Content\RealtimeSurfaceMeshRenderer.h"
@@ -31,6 +36,22 @@ namespace HolographicSpatialMapping
     class HolographicSpatialMappingMain : public DX::IDeviceNotify
     {
     public:
+
+		class SampleSpatialAnchorHelper {
+		public:
+			SampleSpatialAnchorHelper(Windows::Perception::Spatial::SpatialAnchorStore^ anchorStore);
+			//IMap<String^, SpatialAnchor^ >^ GetAnchorMap() { return m_anchorMap; };
+			Windows::Foundation::Collections::IMap<Platform::String^, Windows::Perception::Spatial::SpatialAnchor^>^  GetAnchorMap() { return m_anchorMap; };
+			void LoadFromAnchorStore();
+			void ClearAnchorStore();
+			bool TrySaveToAnchorStore();
+		private:
+			Windows::Perception::Spatial::SpatialAnchorStore^ m_anchorStore;
+			//std::shared_ptr<Platform::Collections::Map<String^, SpatialAnchor^>> m_anchorMap;
+			//Platform::Collections::Map<String^, SpatialAnchor^ >^ m_anchorMap;
+			Windows::Foundation::Collections::IMap<Platform::String^, Windows::Perception::Spatial::SpatialAnchor^>^  m_anchorMap;
+		};
+
         HolographicSpatialMappingMain(const std::shared_ptr<DX::DeviceResources>& deviceResources);
         ~HolographicSpatialMappingMain();
 
@@ -72,7 +93,9 @@ namespace HolographicSpatialMapping
         void OnPositionalTrackingDeactivating(
             Windows::Perception::Spatial::SpatialLocator^ sender,
             Windows::Perception::Spatial::SpatialLocatorPositionalTrackingDeactivatingEventArgs^ args);
-
+		void OnLocatabilityChanged(
+			Windows::Perception::Spatial::SpatialLocator^ sender,
+			Platform::Object^ args);
         // Clears event registration state. Used when changing to a new HolographicSpace
         // and when tearing down AppMain.
         void UnregisterHolographicEventHandlers();
@@ -96,16 +119,19 @@ namespace HolographicSpatialMapping
 
         // SpatialLocator that is attached to the primary camera.
         Windows::Perception::Spatial::SpatialLocator^                       m_locator;
+		std::shared_ptr<SampleSpatialAnchorHelper>							m_spatialAnchorHelper;
+		Windows::Perception::Spatial::SpatialAnchor							^m_baseAnchor, ^m_nextAnchor, ^m_anchor;
 
         // A reference frame attached to the holographic camera.
         Windows::Perception::Spatial::SpatialLocatorAttachedFrameOfReference^ m_referenceFrame;
+		Windows::Perception::Spatial::SpatialStationaryFrameOfReference^ m_stationaryReferenceFrame;
 
         // Event registration tokens.
         Windows::Foundation::EventRegistrationToken                         m_cameraAddedToken;
         Windows::Foundation::EventRegistrationToken                         m_cameraRemovedToken;
         Windows::Foundation::EventRegistrationToken                         m_positionalTrackingDeactivatingToken;
         Windows::Foundation::EventRegistrationToken                         m_surfacesChangedToken;
-
+		Windows::Foundation::EventRegistrationToken                         m_locatabilityChangedToken;
         // Indicates whether access to spatial mapping data has been granted.
         bool                                                                m_surfaceAccessAllowed = false;
 
@@ -116,7 +142,22 @@ namespace HolographicSpatialMapping
         Windows::Perception::Spatial::Surfaces::SpatialSurfaceObserver^     m_surfaceObserver;
         Windows::Perception::Spatial::Surfaces::SpatialSurfaceMeshOptions^  m_surfaceMeshOptions;
 
-        // Determines the rendering mode.
-        bool                                                                m_drawWireframe = true;
+		Windows::Networking::Sockets::StreamSocketListener ^            listener, ^listener2, ^listener3;
+		Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>^  OnConnection;
+		Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>^  OnConnection2, ^  OnConnection3;
+		Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ OnConnectionEvent;
+
+		// Determines the rendering mode.
+		bool                                                                m_drawWireframe = true;
+
+
+		bool																m_renderAndSend = false;
+		bool																m_positionLost = false;
+		bool																m_recovering = false;
+		bool																m_depthReceived = false;
+		void																LoadAnchorStore();
+		int																	m_spatialId = 0;
+		Platform::String^																m_newKey;
+
     };
 }

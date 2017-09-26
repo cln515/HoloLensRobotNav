@@ -36,15 +36,22 @@ namespace DX
             std::shared_ptr<DX::DeviceResources> deviceResources,
             Windows::Graphics::Holographic::HolographicCameraPose^ cameraPose,
             Windows::Perception::Spatial::SpatialCoordinateSystem^ coordinateSystem);
-
+		void UpdateViewProjectionBuffer_(
+			std::shared_ptr<DX::DeviceResources> deviceResources,
+			Windows::Graphics::Holographic::HolographicCameraPose^ cameraPose,
+			Windows::Perception::Spatial::SpatialCoordinateSystem^ coordinateSystem);
         bool AttachViewProjectionBuffer(
             std::shared_ptr<DX::DeviceResources> deviceResources);
 
         // Direct3D device resources.
         ID3D11RenderTargetView* GetBackBufferRenderTargetView()     const { return m_d3dRenderTargetView.Get();     }
-        ID3D11DepthStencilView* GetDepthStencilView()               const { return m_d3dDepthStencilView.Get();     }
-        ID3D11Texture2D*        GetBackBufferTexture2D()            const { return m_d3dBackBuffer.Get();           }
-        D3D11_VIEWPORT          GetViewport()                       const { return m_d3dViewport;                   }
+		ID3D11RenderTargetView* GetOffScreenRenderTargetView()     const { return m_d3dOffScreenRenderTargetView.Get(); }
+		ID3D11DepthStencilView* GetDepthStencilView()               const { return m_d3dDepthStencilView.Get();     }
+		ID3D11DepthStencilView* GetOffScreenDepthStencilView()               const { return m_d3dOffScreenDepthStencilView.Get(); }
+		ID3D11Texture2D*        GetBackBufferTexture2D()            const { return m_d3dBackBuffer.Get();           }
+		ID3D11Texture2D*        GetOffTexture2D()					const { return m_d3dOffScreenTexture.Get(); }
+		ID3D11Texture2D*        GetCopiedTexture2D()					const { return m_textureBuf.Get(); }
+		D3D11_VIEWPORT          GetViewport()                       const { return m_d3dViewport;                   }
         DXGI_FORMAT             GetBackBufferDXGIFormat()           const { return m_dxgiFormat;                    }
 
         // Render target properties.
@@ -56,9 +63,10 @@ namespace DX
 
     private:
         // Direct3D rendering objects. Required for 3D.
-        Microsoft::WRL::ComPtr<ID3D11RenderTargetView>      m_d3dRenderTargetView;
-        Microsoft::WRL::ComPtr<ID3D11DepthStencilView>      m_d3dDepthStencilView;
-        Microsoft::WRL::ComPtr<ID3D11Texture2D>             m_d3dBackBuffer;
+		Microsoft::WRL::ComPtr<ID3D11RenderTargetView>      m_d3dRenderTargetView, m_d3dOffScreenRenderTargetView;
+		Microsoft::WRL::ComPtr<ID3D11DepthStencilView>      m_d3dDepthStencilView, m_d3dOffScreenDepthStencilView;
+		Microsoft::WRL::ComPtr<ID3D11Texture2D>             m_d3dBackBuffer, m_d3dOffScreenTexture, m_textureBuf;
+		ID3D11ShaderResourceView* m_shaderResourceView;
 
         // Device resource to store view and projection matrices.
         Microsoft::WRL::ComPtr<ID3D11Buffer>                m_viewProjectionConstantBuffer;
@@ -67,6 +75,7 @@ namespace DX
         DXGI_FORMAT                                         m_dxgiFormat;
         Windows::Foundation::Size                           m_d3dRenderTargetSize;
         D3D11_VIEWPORT                                      m_d3dViewport;
+		ID3D11SamplerState*			m_SamplerLinear;
 
         // Indicates whether the camera supports stereoscopic rendering.
         bool                                                m_isStereo = false;

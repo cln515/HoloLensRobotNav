@@ -216,6 +216,66 @@ void RealtimeSurfaceMeshRenderer::Render(bool isStereo, bool useWireframe)
     }
 }
 
+// Renders one frame using the vertex, geometry, and pixel shaders.
+void RealtimeSurfaceMeshRenderer::OffRender()
+{
+	// Loading is asynchronous. Only draw geometry after it's loaded.
+	if (!m_loadingComplete)
+	{
+		return;
+	}
+
+	auto context = m_deviceResources->GetD3DDeviceContext();
+
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->IASetInputLayout(m_inputLayout.Get());
+
+	// Attach our vertex shader.
+	context->VSSetShader(
+		m_vertexShader.Get(),
+		nullptr,
+		0
+	);
+
+	// The constant buffer is per-mesh, and will be set for each one individually.
+	if (!m_usingVprtShaders)
+	{
+		// Attach the passthrough geometry shader.
+		context->GSSetShader(
+			m_geometryShader.Get(),
+			nullptr,
+			0
+		);
+	}
+
+	{
+		// Use the default rasterizer state.
+		m_deviceResources->GetD3DDeviceContext()->RSSetState(m_defaultRasterizerState.Get());
+
+		// Attach a pixel shader that can do lighting.
+		context->PSSetShader(
+			m_depthShader.Get(),
+			nullptr,
+			0
+		);
+
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(m_meshCollectionLock);
+
+		// Draw the meshes.
+		auto device = m_deviceResources->GetD3DDevice();
+		for (auto& pair : m_meshCollection)
+		{
+			auto& id = pair.first;
+			auto& surfaceMesh = pair.second;
+
+			surfaceMesh.Draw(device, context, m_usingVprtShaders, false);
+		}
+	}
+}
+
 void RealtimeSurfaceMeshRenderer::CreateDeviceDependentResources()
 {
     m_usingVprtShaders = m_deviceResources->GetDeviceSupportsVprt();
@@ -231,6 +291,7 @@ void RealtimeSurfaceMeshRenderer::CreateDeviceDependentResources()
     task<std::vector<byte>> loadVSTask = DX::ReadDataAsync(vertexShaderFileName);
     task<std::vector<byte>> loadLightingPSTask = DX::ReadDataAsync(L"ms-appx:///SimpleLightingPixelShader.cso");
     task<std::vector<byte>> loadWireframePSTask = DX::ReadDataAsync(L"ms-appx:///SolidColorPixelShader.cso");
+	task<std::vector<byte>> loadDepthPSTask = DX::ReadDataAsync(L"ms-appx:///TestDepthColorPixelShader.cso");
 
     task<std::vector<byte>> loadGSTask;
     if (!m_usingVprtShaders)
@@ -278,6 +339,17 @@ void RealtimeSurfaceMeshRenderer::CreateDeviceDependentResources()
                 )
             );
     });
+
+	auto createDepthPSTask = loadDepthPSTask.then([this](const std::vector<byte>& fileData) {
+		DX::ThrowIfFailed(
+			m_deviceResources->GetD3DDevice()->CreatePixelShader(
+				&fileData[0],
+				fileData.size(),
+				nullptr,
+				&m_depthShader
+			)
+		);
+	});
 
     // After the pixel shader file is loaded, create the shader and constant buffer.
     auto createWireframePSTask = loadWireframePSTask.then([this](const std::vector<byte>& fileData) {
@@ -351,6 +423,7 @@ void RealtimeSurfaceMeshRenderer::ReleaseDeviceDependentResources()
     m_geometryShader.Reset();
     m_lightingPixelShader.Reset();
     m_colorPixelShader.Reset();
+	m_depthShader.Reset();
 
     m_defaultRasterizerState.Reset();
     m_wireframeRasterizerState.Reset();
