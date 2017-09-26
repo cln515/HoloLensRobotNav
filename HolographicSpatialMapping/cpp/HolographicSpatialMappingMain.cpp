@@ -27,6 +27,13 @@
 #define HEADER_TRACKLOST 50
 #define HEADER_DEPTHSTREAM 100
 
+#define CMD_IMG_REQ 4
+#define FINISH_ALIGNMENT 8
+#define LOC_FAILED 12
+#define DEPTH_STREAM_REQ 16
+#define DEPTH_STREAM_OFF_REQ 18
+#define FINISH_RECV_MESH 20
+
 using namespace HolographicSpatialMapping;
 using namespace WindowsHolographicCodeSamples;
 
@@ -49,7 +56,7 @@ using namespace std::placeholders;
 
 Windows::Storage::Streams::DataWriter^							 writer, ^imagewriter, ^audiowriter;
 Windows::Storage::Streams::DataReader^							reader;
-Windows::Networking::Sockets::StreamSocket^					sock, ^imagesock, ^commandsock, ^audiosock;
+Windows::Networking::Sockets::StreamSocket^					sock, ^imagesock;
 bool ack = false, ack2 = false, ack3 = false, posfailed = false, m_depthStreamMode = false, checkReceive = true, connecting = false, audioack = false, recordPreparing = false;
 
 void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networking::Sockets::StreamSocket^ sock_) {
@@ -62,13 +69,14 @@ void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networ
 		}
 
 		unsigned int stringLength = reader->ReadUInt32();
-		if (stringLength == 4) {
+		if (stringLength == CMD_IMG_REQ) {
 			ack = true;
 		}
-		if (stringLength == 8)ack2 = true;
-		if (stringLength == 12)posfailed = true;
-		if (stringLength == 16)m_depthStreamMode = true;
-		if (stringLength == 20)checkReceive = true;
+		if (stringLength == FINISH_ALIGNMENT)ack2 = true;
+		if (stringLength == LOC_FAILED)posfailed = true;
+		if (stringLength == DEPTH_STREAM_REQ)m_depthStreamMode = true;
+		if (stringLength == DEPTH_STREAM_OFF_REQ)m_depthStreamMode = false;
+		if (stringLength == FINISH_RECV_MESH)checkReceive = true;
 		receiveLoop(reader_, sock_);
 	});
 }
@@ -80,18 +88,6 @@ void OnEvent(Windows::Networking::Sockets::StreamSocketListener^ listener,
 	sock = object->Socket;
 	connecting = true;
 	receiveLoop(reader, sock);
-};
-
-void OnEvent2(Windows::Networking::Sockets::StreamSocketListener^ listener,
-	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
-	audiowriter = ref new Windows::Storage::Streams::DataWriter(object->Socket->OutputStream);
-	audiosock = object->Socket;
-	audioack = true;
-};
-void OnEvent3(Windows::Networking::Sockets::StreamSocketListener^ listener,
-	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
-	commandsock = object->Socket;
-	reader = ref new Windows::Storage::Streams::DataReader(object->Socket->InputStream);
 };
 
 inline float SIGN(float x) { return (x >= 0.0f) ? +1.0f : -1.0f; };
@@ -151,7 +147,7 @@ HolographicSpatialMappingMain::HolographicSpatialMappingMain(
 {
     // Register to be notified if the device is lost or recreated.
     m_deviceResources->RegisterDeviceNotify(this);
-
+	//Setting TCP connection listener
 	HostName^ hostName;
 	try
 	{
@@ -161,7 +157,7 @@ HolographicSpatialMappingMain::HolographicSpatialMappingMain(
 	{
 		return;
 	}
-
+	
 	listener = ref new Sockets::StreamSocketListener();
 	OnConnection = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
 		(OnEvent);
@@ -170,7 +166,6 @@ HolographicSpatialMappingMain::HolographicSpatialMappingMain(
 
 	listener->Control->KeepAlive = false;
 	create_task(listener->BindServiceNameAsync(PORT)).then([this](task<void> previousTask)
-		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
 	{
 		try
 		{
@@ -182,48 +177,6 @@ HolographicSpatialMappingMain::HolographicSpatialMappingMain(
 		{
 		}
 	});
-	listener2 = ref new Sockets::StreamSocketListener();
-	OnConnection2 = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
-		(OnEvent2);
-
-	listener2->ConnectionReceived += OnConnection2;
-
-	listener2->Control->KeepAlive = false;
-	create_task(listener2->BindServiceNameAsync(PORT2)).then([this](task<void> previousTask)
-		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
-	{
-		try
-		{
-			// Try getting an exception.
-			previousTask.get();
-
-		}
-		catch (Exception^ exception)
-		{
-		}
-	});
-
-	listener3 = ref new Sockets::StreamSocketListener();
-	OnConnection3 = ref new Windows::Foundation::TypedEventHandler<Windows::Networking::Sockets::StreamSocketListener^, Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^>
-		(OnEvent3);
-
-	listener3->ConnectionReceived += OnConnection3;
-
-	listener3->Control->KeepAlive = false;
-	create_task(listener3->BindServiceNameAsync(PORT3)).then([this](task<void> previousTask)
-		//create_task(listener->BindEndpointAsync(hostName,PORT)).then([this](task<void> previousTask)
-	{
-		try
-		{
-			// Try getting an exception.
-			previousTask.get();
-
-		}
-		catch (Exception^ exception)
-		{
-		}
-	});
-
 }
 
 void HolographicSpatialMappingMain::SetHolographicSpace(
@@ -411,8 +364,6 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 		connecting = false;
 	}
     
-	// Only create a surface observer when you need to - do not create a new one each frame.
-    
 	if ((ack || ack3 || (m_depthStreamMode)) && !m_positionLost) {
 
 		if (ack || ack3)m_renderAndSend = true;
@@ -590,50 +541,13 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 
 		m_drawWireframe = !m_drawWireframe;
 		SpatialPointerPose^ pointerPose = pointerState->TryGetPointerPose(stationaryCoordinateSystem);
-		if (pointerPose != nullptr && commandsock != nullptr)
-		{
-			//const float3 headPosition = pointerPose->Head->Position;
-			// When a Pressed gesture is detected, the anchor will be created two meters in front of the user.
-
-			// Get the gaze direction relative to the given coordinate system.
-			const float3 headPosition = pointerPose->Head->Position;
-			const float3 headDirection = pointerPose->Head->ForwardDirection;
-
-			// The anchor position in the StationaryReferenceFrame.
-			static const float distanceFromUser = 2.0f; // meters
-			const float3 gazeAtTwoMeters = headPosition + (distanceFromUser * headDirection);
-
-			// Create the anchor at position.
-			SpatialAnchor^ anchor = SpatialAnchor::TryCreateRelativeTo(currentCoordinateSystem, gazeAtTwoMeters);
-			//m_uniqueSpatialAnchor = anchor;
-			if ((anchor != nullptr) && (m_spatialAnchorHelper != nullptr))
-			{
-				// In this example, we store the anchor in an IMap.
-				auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
-
-				// Create an identifier for the anchor.
-				String^ id = ref new String(L"HolographicSpatialAnchor_Unique_");
-
-				anchorMap->Insert(id->ToString(), anchor);
-				SaveAppState();
-				if (m_baseAnchor == nullptr) {
-					m_baseAnchor = anchor;
-				}
-				else {
-					m_nextAnchor = m_baseAnchor;
-				}
-
-			}
-
-
-		}
-		if (imagesock != nullptr)m_renderAndSend = true;
 	}
 	if (posfailed) {
 		m_spatialId--;
 		m_nextAnchor = nullptr;
 		posfailed = false;
 	}
+	//Registering new anchor after finishing alignment
 	if (ack2) {
 		auto anchorMap = m_spatialAnchorHelper->GetAnchorMap();
 		anchorMap->Insert(m_newKey->ToString(), m_nextAnchor);
@@ -735,12 +649,6 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 						if (!m_recovering)ack3 = true;
 					}
 				}
-				//std::stringstream ss;
-				//ss << xp << " " << yp << " " << zp;
-				//std::string s_str = ss.str();
-				//std::wstring wid_str = std::wstring(s_str.begin(), s_str.end());
-				//const wchar_t* w_char = wid_str.c_str();
-				//String^ stringToSend = ref new String(w_char);
 				if (posLost) {
 					writer->WriteUInt32(HEADER_POSLOST);
 					Sockets::StreamSocket^ socket_ = sock;
