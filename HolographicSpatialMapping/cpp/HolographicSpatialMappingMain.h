@@ -19,6 +19,7 @@
 
 #include "Common\DeviceResources.h"
 #include "Common\StepTimer.h"
+#include "FloorDetector.h"
 
 #include <windows.networking.sockets.h>
 #include <windows.storage.streams.h>

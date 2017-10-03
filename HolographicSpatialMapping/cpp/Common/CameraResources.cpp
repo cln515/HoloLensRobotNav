@@ -96,8 +96,8 @@ void DX::CameraResources::CreateResourcesForBackBuffer(
 		ZeroMemory(&textureDesc, sizeof(textureDesc));
 
 		// Setup the render target texture description.
-		textureDesc.Width = 512;//textureWidth;
-		textureDesc.Height = 512; //textureHeight;
+		textureDesc.Width = RENDERPIXEL_SIZE;//textureWidth;
+		textureDesc.Height = RENDERPIXEL_SIZE; //textureHeight;
 		textureDesc.MipLevels = 1;
 		textureDesc.ArraySize = 1;
 		textureDesc.Format = DXGI_FORMAT_R32_FLOAT;
@@ -379,11 +379,11 @@ void DX::CameraResources::UpdateViewProjectionBuffer_(
 		XMStoreFloat4x4(
 			&viewProjectionConstantBufferData.viewProjection[0],
 			//XMMatrixTranspose(XMLoadFloat4x4(&viewCoordinateSystemTransform.Left) * XMLoadFloat4x4(&cameraProjectionTransform.Left))
-			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(12.0f, 12.0f, 0.0f, 3.0f))
+			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(RENDERED_RANGE, RENDERED_RANGE, 0.0f, 3.0f))
 		);
 		XMStoreFloat4x4(
 			&viewProjectionConstantBufferData.viewProjection[1],
-			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(12.0f, 12.0f, 0.0f, 3.0f))
+			XMMatrixTranspose(XMMatrixLookAtRH(XMLoadFloat3(&eyepos), XMLoadFloat3(&direction), XMLoadFloat3(&upward))*XMMatrixOrthographicRH(RENDERED_RANGE, RENDERED_RANGE, 0.0f, 3.0f))
 		);
 
 		float4x4 viewInverse;

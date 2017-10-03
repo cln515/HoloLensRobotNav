@@ -13,6 +13,10 @@
 
 #include "Content\ShaderStructures.h"
 
+#define RENDERPIXEL_SIZE 512
+#define RENDERED_RANGE 12.0f
+
+
 namespace DX
 {
     class DeviceResources;
@@ -57,6 +61,7 @@ namespace DX
         // Render target properties.
         Windows::Foundation::Size GetRenderTargetSize()             const { return m_d3dRenderTargetSize;           }
         bool                    IsRenderingStereoscopic()           const { return m_isStereo;                      }
+		double	getScale() const { return RENDERED_RANGE/RENDERPIXEL_SIZE; }
 
         // The holographic camera these resources are for.
         Windows::Graphics::Holographic::HolographicCamera^ GetHolographicCamera() const { return m_holographicCamera; }

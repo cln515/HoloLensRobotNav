@@ -81,6 +81,7 @@
     <ClInclude Include="Content\GetDataFromIBuffer.h" />
     <ClInclude Include="Content\RealtimeSurfaceMeshRenderer.h" />
     <ClInclude Include="Content\SurfaceMesh.h" />
+    <ClInclude Include="FloorDetector.h" />
     <ClInclude Include="HolographicSpatialMappingMain.h" />
     <ClInclude Include="Common\DeviceResources.h" />
     <ClInclude Include="Common\DirectXHelper.h" />
@@ -94,6 +95,7 @@
     <ClCompile Include="AppView.cpp" />
     <ClCompile Include="Content\RealtimeSurfaceMeshRenderer.cpp" />
     <ClCompile Include="Content\SurfaceMesh.cpp" />
+    <ClCompile Include="FloorDetector.cpp" />
     <ClCompile Include="HolographicSpatialMappingMain.cpp" />
     <ClCompile Include="Common\DeviceResources.cpp" />
     <ClCompile Include="Common\CameraResources.cpp" />
@@ -168,11 +170,19 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\README.md" />
+    <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\ImageContentTask.targets" />
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\MeshContentTask.targets" />
     <Import Project="$(VSINSTALLDIR)\Common7\IDE\Extensions\Microsoft\VsGraphics\ShaderGraphContentTask.targets" />
+    <Import Project="packages\Eigen.3.3.3\build\native\Eigen.targets" Condition="Exists('packages\Eigen.3.3.3\build\native\Eigen.targets')" />
   </ImportGroup>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>このプロジェクトは、このコンピューター上にない NuGet パッケージを参照しています。それらのパッケージをダウンロードするには、[NuGet パッケージの復元] を使用します。詳細については、http://go.microsoft.com/fwlink/?LinkID=322105 を参照してください。見つからないファイルは {0} です。</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('packages\Eigen.3.3.3\build\native\Eigen.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Eigen.3.3.3\build\native\Eigen.targets'))" />
+  </Target>
 </Project>

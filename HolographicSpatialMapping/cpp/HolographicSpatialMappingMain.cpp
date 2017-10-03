@@ -12,6 +12,8 @@
 #include "pch.h"
 #include "HolographicSpatialMappingMain.h"
 #include "Common\DirectXHelper.h"
+#include "Eigen\Eigen"
+#include "Eigen\Core"
 
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <Collection.h>
@@ -25,6 +27,7 @@
 #define HEADER_CHANC 30
 #define HEADER_POSLOST 40
 #define HEADER_TRACKLOST 50
+#define HOLOLENS_HEIGHT 60
 #define HEADER_DEPTHSTREAM 100
 
 #define CMD_IMG_REQ 4
@@ -57,7 +60,9 @@ using namespace std::placeholders;
 Windows::Storage::Streams::DataWriter^							 writer, ^imagewriter, ^audiowriter;
 Windows::Storage::Streams::DataReader^							reader;
 Windows::Networking::Sockets::StreamSocket^					sock, ^imagesock;
-bool ack = false, ack2 = false, ack3 = false, posfailed = false, m_depthStreamMode = false, checkReceive = true, connecting = false, audioack = false, recordPreparing = false;
+bool ack = false, ack2 = false, ack3 = false,
+posfailed = false, m_depthStreamMode = false,
+checkReceive = true, connecting = false, height_requested = true;
 
 void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networking::Sockets::StreamSocket^ sock_) {
 	create_task(reader->LoadAsync(sizeof(UINT32))).then([reader_, sock_](unsigned int size)
@@ -780,8 +785,8 @@ bool HolographicSpatialMappingMain::Render(
             }
 #endif
             atLeastOneCameraRendered = true;
-			//Ishikawa test rendering target: off screen buffer 
-			if ((m_renderAndSend || (m_depthStreamMode&&m_depthReceived)) && !m_positionLost) {
+			// off screen buffer 
+			if ((m_renderAndSend || height_requested ||(m_depthStreamMode&&m_depthReceived)) && !m_positionLost) {
 				ID3D11RenderTargetView *const targeto[1] = { pCameraResources->GetOffScreenRenderTargetView() };
 				context->OMSetRenderTargets(1, targeto, osdepthStencilView);
 
@@ -797,12 +802,6 @@ bool HolographicSpatialMappingMain::Render(
 				if (cameraActive)
 				{
 					m_meshRenderer->OffRender();
-
-					// Draw the sample hologram.
-					//ID3D11RenderTargetView *const targeto2[1] = { pCameraResources->GetOffScreenRenderTargetView() };
-					//context->OMSetRenderTargets(1, targeto2, osdepthStencilView);
-
-					//m_meshRenderer->EdgeExtraction();
 				}
 
 
@@ -824,39 +823,71 @@ bool HolographicSpatialMappingMain::Render(
 				
 				Platform::Array<unsigned char>^ buffer = ref new Platform::Array<unsigned char>(mapped->RowPitch*Height);
 				memcpy(buffer->Data, mapped->pData, mapped->RowPitch*Height);
+				
+				//obtain HoloLens height from floor
+				Eigen::Vector3d floorpt;
+				double HoloHeight;
+				FloorDetection(buffer, mapped->RowPitch, Height, pCameraResources->getScale(), HoloHeight,floorpt);
+				
 
-				if (writer != nullptr) {
-					if (m_renderAndSend) {
-						m_renderAndSend = false;
-						writer->WriteUInt32(HEADER_IMAGE);
-						String^ stringToSend = m_newKey;
-						writer->WriteInt32(writer->MeasureString(stringToSend));
-						writer->WriteString(stringToSend);
-					}
-					else {
-						writer->WriteUInt32(HEADER_DEPTHSTREAM);
-						//checkReceive = false;
-						m_depthReceived = false;
-					}
-					writer->WriteUInt32(mapped->RowPitch);
-					writer->WriteUInt32(Height);
-					writer->WriteBytes(buffer);
-					delete buffer;
-					delete mapped;
-					//imagewriter->WriteBuffer(buffer);
-					Sockets::StreamSocket^ socket_ = imagesock;
+				if (writer != nullptr) {//send image
+					if (height_requested) {
+						writer->WriteUInt32(HOLOLENS_HEIGHT);
+						float bufData[4];
+						bufData[0]=HoloHeight;	bufData[1] = floorpt(0);	bufData[2] = floorpt(1);	bufData[3] = floorpt(2);
+						Sockets::StreamSocket^ socket_ = sock;
+						Platform::Array<unsigned char>^ bufferheight = ref new Platform::Array<unsigned char>(sizeof(float) * 4);
+						char* p = (char*)bufData;
+						memcpy(bufferheight->Data, p, sizeof(float) * 4);
+						writer->WriteBytes(bufferheight);
 
-					create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
-					{
-						try
+						create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
 						{
-							// Try getting an exception.
-							writeTask.get();
+							try
+							{
+								// Try getting an exception.
+								writeTask.get();
+							}
+							catch (Exception^ exception)
+							{
+							}
+						});
+					}
+					
+					if (m_renderAndSend || (m_depthStreamMode&&m_depthReceived)) {
+						if (m_renderAndSend) {
+							m_renderAndSend = false;
+							writer->WriteUInt32(HEADER_IMAGE);
+							String^ stringToSend = m_newKey;
+							writer->WriteInt32(writer->MeasureString(stringToSend));
+							writer->WriteString(stringToSend);
 						}
-						catch (Exception^ exception)
+						else {
+							writer->WriteUInt32(HEADER_DEPTHSTREAM);
+							//checkReceive = false;
+							m_depthReceived = false;
+						}
+
+						writer->WriteUInt32(mapped->RowPitch);
+						writer->WriteUInt32(Height);
+						writer->WriteBytes(buffer);
+						delete buffer;
+						delete mapped;
+						//imagewriter->WriteBuffer(buffer);
+						Sockets::StreamSocket^ socket_ = imagesock;
+
+						create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
 						{
-						}
-					});
+							try
+							{
+								// Try getting an exception.
+								writeTask.get();
+							}
+							catch (Exception^ exception)
+							{
+							}
+						});
+					}
 
 				}
 				else {

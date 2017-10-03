@@ -26,3 +26,6 @@
 #include <memory>
 #include <map>
 #include <mutex>
+#include <Eigen\Eigen>
+#include <Eigen\Core>
+#include <Eigen\Dense>
