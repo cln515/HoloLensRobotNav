@@ -57,13 +57,14 @@ using namespace Windows::Media::MediaProperties;
 using namespace std::placeholders;
 
 
-Windows::Storage::Streams::DataWriter^							 writer, ^imagewriter, ^audiowriter;
+Windows::Storage::Streams::DataWriter^							 writer;
 Windows::Storage::Streams::DataReader^							reader;
 Windows::Networking::Sockets::StreamSocket^					sock, ^imagesock;
 bool ack = false, ack2 = false, ack3 = false,
 posfailed = false, m_depthStreamMode = false,
 checkReceive = true, connecting = false, height_requested = true;
 
+//receive command sent from ROS
 void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networking::Sockets::StreamSocket^ sock_) {
 	if (reader_ == nullptr)return;
 	create_task(reader->LoadAsync(sizeof(UINT32))).then([reader_, sock_](unsigned int size)
@@ -73,11 +74,8 @@ void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networ
 			// The underlying socket was closed before we were able to read the whole data.
 			cancel_current_task();
 		}
-
 		unsigned int stringLength = reader->ReadUInt32();
-		if (stringLength == CMD_IMG_REQ) {
-			ack = true;
-		}
+		if (stringLength == CMD_IMG_REQ)ack = true;
 		if (stringLength == FINISH_ALIGNMENT)ack2 = true;
 		if (stringLength == LOC_FAILED)posfailed = true;
 		if (stringLength == DEPTH_STREAM_REQ)m_depthStreamMode = true;
@@ -87,6 +85,7 @@ void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networ
 	});
 }
 
+//conenction callback
 void OnEvent(Windows::Networking::Sockets::StreamSocketListener^ listener,
 	Windows::Networking::Sockets::StreamSocketListenerConnectionReceivedEventArgs^ object) {
 	writer = ref new Windows::Storage::Streams::DataWriter(object->Socket->OutputStream);
@@ -96,55 +95,6 @@ void OnEvent(Windows::Networking::Sockets::StreamSocketListener^ listener,
 	receiveLoop(reader, sock);
 };
 
-inline float SIGN(float x) { return (x >= 0.0f) ? +1.0f : -1.0f; };
-inline float NORM(float a, float b, float c, float d) { return sqrt(a * a + b * b + c * c + d * d); };
-
-float4 mat2quarternion(float4x4 m) {
-	float4 q;
-	q.x = (m.m11 + m.m22 + m.m33 + 1.0f) / 4.0f;
-	q.y = (m.m11 - m.m22 - m.m33 + 1.0f) / 4.0f;
-	q.z = (-m.m11 + m.m22 - m.m33 + 1.0f) / 4.0f;
-	q.w = (-m.m11 - m.m22 + m.m33 + 1.0f) / 4.0f;
-	if (q.x < 0.0f) q.x = 0.0f;
-	if (q.y < 0.0f) q.y = 0.0f;
-	if (q.z < 0.0f) q.z = 0.0f;
-	if (q.w < 0.0f) q.w = 0.0f;
-	q.x = sqrt(q.x);
-	q.y = sqrt(q.y);
-	q.z = sqrt(q.z);
-	q.w = sqrt(q.w);
-	if (q.x >= q.y && q.x >= q.z && q.x >= q.w) {
-		q.x *= +1.0f;
-		q.y *= SIGN(m.m32 - m.m23);
-		q.z *= SIGN(m.m13 - m.m31);
-		q.w *= SIGN(m.m21 - m.m12);
-	}
-	else if (q.y >= q.x && q.y >= q.z && q.y >= q.w) {
-		q.x *= SIGN(m.m32 - m.m23);
-		q.y *= +1.0f;
-		q.z *= SIGN(m.m21 + m.m12);
-		q.w *= SIGN(m.m13 + m.m31);
-	}
-	else if (q.z >= q.x && q.z >= q.y && q.z >= q.w) {
-		q.x *= SIGN(m.m13 - m.m31);
-		q.y *= SIGN(m.m21 + m.m12);
-		q.z *= +1.0f;
-		q.w *= SIGN(m.m32 + m.m23);
-	}
-	else if (q.w >= q.x && q.w >= q.y && q.w >= q.z) {
-		q.x *= SIGN(m.m21 - m.m12);
-		q.y *= SIGN(m.m31 + m.m13);
-		q.z *= SIGN(m.m32 + m.m23);
-		q.w *= +1.0f;
-	}
-	float rad = NORM(q.x, q.y, q.z, q.w);
-	q.x /= rad;
-	q.y /= rad;
-	q.z /= rad;
-	q.w /= rad;
-
-	return q;
-}
 
 // Loads and initializes application assets when the application is loaded.
 HolographicSpatialMappingMain::HolographicSpatialMappingMain(
@@ -202,6 +152,7 @@ void HolographicSpatialMappingMain::SetHolographicSpace(
     // Use the default SpatialLocator to track the motion of the device.
     m_locator = SpatialLocator::GetDefault();
 
+	//This callback called when HoloLens lost its position
 	m_locatabilityChangedToken =
 		m_locator->LocatabilityChanged +=
 		ref new Windows::Foundation::TypedEventHandler<SpatialLocator^, Object^>(
@@ -370,8 +321,8 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 		connecting = false;
 	}
     
+	//new rendered image is requested
 	if ((ack || ack3 || (m_depthStreamMode)) && !m_positionLost) {
-
 		if (ack || ack3)m_renderAndSend = true;
 		//m_spatialId = 0;
 		auto cameraPose = prediction->CameraPoses->GetAt(0);
@@ -648,6 +599,8 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 							}
 							catch (Exception^ exception)
 							{
+								writer = nullptr;
+								reader = nullptr;
 							}
 						});
 					}
@@ -667,9 +620,7 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 						}
 						catch (Exception^ exception)
 						{
-//							delete writer;
 							writer = nullptr;
-//							delete reader;
 							reader = nullptr;
 						}
 					});
@@ -698,9 +649,7 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 						}
 						catch (Exception^ exception)
 						{
-//							delete writer;
 							writer = nullptr;
-//							delete reader;
 							reader = nullptr;
 						}
 					});
@@ -722,9 +671,7 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 				}
 				catch (Exception^ exception)
 				{
-//					delete writer;
 					writer = nullptr;
-//					delete reader;
 					reader = nullptr;
 				}
 			});
@@ -819,9 +766,7 @@ bool HolographicSpatialMappingMain::Render(
 
 
 				D3D11_MAPPED_SUBRESOURCE* mapped = new D3D11_MAPPED_SUBRESOURCE();
-				//ID3D11Texture2D* renderedTexture = pCameraResources->GetBackBufferTexture2D();
 				ID3D11Texture2D* renderedTexture = pCameraResources->GetOffTexture2D();
-				//renderedTexture->GetPrivateData();
 				ID3D11Texture2D* textureBuf = pCameraResources->GetCopiedTexture2D();
 				D3D11_TEXTURE2D_DESC *originDesc = new D3D11_TEXTURE2D_DESC();
 
@@ -863,9 +808,7 @@ bool HolographicSpatialMappingMain::Render(
 							}
 							catch (Exception^ exception)
 							{
-//								delete writer;
 								writer = nullptr;
-//								delete reader;
 								reader = nullptr;
 							}
 						});
@@ -881,7 +824,6 @@ bool HolographicSpatialMappingMain::Render(
 						}
 						else {
 							writer->WriteUInt32(HEADER_DEPTHSTREAM);
-							//checkReceive = false;
 							m_depthReceived = false;
 						}
 
@@ -890,8 +832,7 @@ bool HolographicSpatialMappingMain::Render(
 						writer->WriteBytes(buffer);
 						delete buffer;
 						delete mapped;
-						//imagewriter->WriteBuffer(buffer);
-						Sockets::StreamSocket^ socket_ = imagesock;
+						Sockets::StreamSocket^ socket_ = sock;
 
 						create_task(writer->StoreAsync()).then([this, socket_](task<unsigned int> writeTask)
 						{
@@ -902,9 +843,7 @@ bool HolographicSpatialMappingMain::Render(
 							}
 							catch (Exception^ exception)
 							{
-//								delete writer;
 								writer = nullptr;
-//								delete reader;
 								reader = nullptr;
 							}
 						});
