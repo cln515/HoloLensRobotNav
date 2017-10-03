@@ -65,6 +65,7 @@ posfailed = false, m_depthStreamMode = false,
 checkReceive = true, connecting = false, height_requested = true;
 
 void receiveLoop(Windows::Storage::Streams::DataReader^ reader_, Windows::Networking::Sockets::StreamSocket^ sock_) {
+	if (reader_ == nullptr)return;
 	create_task(reader->LoadAsync(sizeof(UINT32))).then([reader_, sock_](unsigned int size)
 	{
 		if (size < sizeof(UINT32))
@@ -666,6 +667,10 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 						}
 						catch (Exception^ exception)
 						{
+//							delete writer;
+							writer = nullptr;
+//							delete reader;
+							reader = nullptr;
 						}
 					});
 
@@ -693,6 +698,10 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 						}
 						catch (Exception^ exception)
 						{
+//							delete writer;
+							writer = nullptr;
+//							delete reader;
+							reader = nullptr;
 						}
 					});
 				}
@@ -713,6 +722,10 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
 				}
 				catch (Exception^ exception)
 				{
+//					delete writer;
+					writer = nullptr;
+//					delete reader;
+					reader = nullptr;
 				}
 			});
 
@@ -850,6 +863,10 @@ bool HolographicSpatialMappingMain::Render(
 							}
 							catch (Exception^ exception)
 							{
+//								delete writer;
+								writer = nullptr;
+//								delete reader;
+								reader = nullptr;
 							}
 						});
 					}
@@ -885,6 +902,10 @@ bool HolographicSpatialMappingMain::Render(
 							}
 							catch (Exception^ exception)
 							{
+//								delete writer;
+								writer = nullptr;
+//								delete reader;
+								reader = nullptr;
 							}
 						});
 					}
