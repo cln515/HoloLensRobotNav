@@ -1,3 +1,11 @@
+/*
+Copyright (c) 2017 Ryoichi Ishikawa. All rights reserved.
+
+This file contains Original Code and/or Modifications of Original Code
+This software is released under the MIT License.
+http://opensource.org/licenses/mit-license.php
+*/
+
 //*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
