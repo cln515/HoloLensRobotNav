@@ -45,6 +45,7 @@
     <ClCompile Include="Content\RealtimeSurfaceMeshRenderer.cpp">
       <Filter>Content</Filter>
     </ClCompile>
+    <ClCompile Include="FloorDetector.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -65,6 +66,7 @@
     <ClInclude Include="Content\GetDataFromIBuffer.h">
       <Filter>Content</Filter>
     </ClInclude>
+    <ClInclude Include="FloorDetector.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Content\SurfaceVertexShader.hlsl">
@@ -82,34 +84,38 @@
     <FxCompile Include="Content\SolidColorPixelShader.hlsl">
       <Filter>Content\Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="Content\TestDepthColorPixelShader.hlsl">
+      <Filter>Content\Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="..\..\..\SharedContent\media\smalltile-sdk.png">
+    <Image Include="media\microsoft-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\splash-sdk.png">
+    <Image Include="media\smalltile-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\squaretile-sdk.png">
+    <Image Include="media\splash-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\storelogo-sdk.png">
+    <Image Include="media\squaretile-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\tile-sdk.png">
+    <Image Include="media\storelogo-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\windows-sdk.png">
+    <Image Include="media\tile-sdk.png">
       <Filter>Assets</Filter>
     </Image>
-    <Image Include="..\..\..\SharedContent\media\microsoft-sdk.png">
+    <Image Include="media\windows-sdk.png">
       <Filter>Assets</Filter>
     </Image>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\README.md" />
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
