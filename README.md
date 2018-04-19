@@ -7,7 +7,7 @@ This is a package for robot navigation using two dimensional map. This package p
 
 This program is a modification of the HoloLens sample code (https://github.com/Microsoft/Windows-universal-samples/tree/master/Samples/HolographicSpatialMapping)
 
-Paper(arXiv.com)
+Paper(https://arxiv.org/abs/1804.04817)
 
 ## Requirement
 Visual studio 2017
