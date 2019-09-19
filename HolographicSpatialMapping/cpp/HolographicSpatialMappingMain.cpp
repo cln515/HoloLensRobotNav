@@ -207,7 +207,8 @@ void HolographicSpatialMappingMain::SetHolographicSpace(
     // follow along with the device's location.
     m_referenceFrame = m_locator->CreateAttachedFrameOfReferenceAtCurrentHeading();
 	m_stationaryReferenceFrame = m_locator->CreateStationaryFrameOfReferenceAtCurrentLocation();
-
+	m_spatialAnchorHelper = std::shared_ptr<SampleSpatialAnchorHelper>(new SampleSpatialAnchorHelper(nullptr));
+//	LoadAnchorStore();
     // Notes on spatial tracking APIs:
     // * Stationary reference frames are designed to provide a best-fit position relative to the
     //   overall space. Individual positions within that reference frame are allowed to drift slightly
@@ -325,7 +326,7 @@ HolographicFrame^ HolographicSpatialMappingMain::Update()
     SpatialCoordinateSystem^ currentCoordinateSystem = m_referenceFrame->GetStationaryCoordinateSystemAtTimestamp(prediction->Timestamp);
 	
 	if (connecting) {
-		m_spatialAnchorHelper->ClearAnchorStore();
+		if(m_spatialAnchorHelper != nullptr)m_spatialAnchorHelper->ClearAnchorStore();
 		m_spatialId = 0;
 		connecting = false;
 	}
@@ -878,14 +879,17 @@ bool HolographicSpatialMappingMain::Render(
 void HolographicSpatialMappingMain::SaveAppState()
 {
     // This sample does not persist any state between sessions.
+	//if (m_spatialAnchorHelper != nullptr)
+	//{
+	//	m_spatialAnchorHelper->TrySaveToAnchorStore();
+	//}
 }
 
 void HolographicSpatialMappingMain::LoadAppState()
 {
-	if (m_spatialAnchorHelper != nullptr)
-	{
-		m_spatialAnchorHelper->TrySaveToAnchorStore();
-	}
+
+
+
 }
 
 // Notifies classes that use Direct3D device resources that the device resources
@@ -937,7 +941,7 @@ void HolographicSpatialMappingMain::OnCameraAdded(
         // the deferral is completed.
         deferral->Complete();
     });
-	LoadAnchorStore();
+	//LoadAnchorStore();
 }
 
 void HolographicSpatialMappingMain::OnCameraRemoved(
@@ -955,39 +959,74 @@ void HolographicSpatialMappingMain::OnCameraRemoved(
 
 void HolographicSpatialMappingMain::LoadAnchorStore() {
 
-	m_spatialAnchorHelper = create_task(SpatialAnchorManager::RequestStoreAsync())
-		.then([](task<SpatialAnchorStore^> previousTask)
-	{
-		std::shared_ptr<SampleSpatialAnchorHelper> newHelper = nullptr;
+//	m_spatialAnchorHelper = create_task(SpatialAnchorManager::RequestStoreAsync())
+//		.then([](task<SpatialAnchorStore^> previousTask)
+////	auto rsasync = SpatialAnchorManager::RequestStoreAsync();
+////	auto createdtask = create_task(rsasync);
+////	m_spatialAnchorHelper = createdtask.then([this](SpatialAnchorStore^ anchorStore)
+//	{
+//		std::shared_ptr<SampleSpatialAnchorHelper> newHelper = nullptr;
+//
+//
+//		try
+//		{
+//			SpatialAnchorStore^ anchorStore = previousTask.get();
+//
+//			// Once the SpatialAnchorStore has been loaded by the system, we can create our helper class.
+//
+//			// Using "new" to access private constructor
+//			newHelper = std::shared_ptr<SampleSpatialAnchorHelper>(new SampleSpatialAnchorHelper(anchorStore));
+//
+//
+//			newHelper->LoadFromAnchorStore();
+//
+//			// Now we can load anchors from the store.
+//
+//		}
+//		catch (Exception^ exception)
+//		{
+//			/*		PrintWstringToDebugConsole(
+//			std::wstring(L"Exception while loading the anchor store: ") +
+//			exception->Message->Data() +
+//			L"\n"
+//			);*/
+//		}
+//
+//		// Return the initialized class instance.
+//		return newHelper;
+//	}).get();
 
+	//SpatialAnchorStore^ anchorStore = previousTask.get();
 
-		try
-		{
-			SpatialAnchorStore^ anchorStore = previousTask.get();
+	// Once the SpatialAnchorStore has been loaded by the system, we can create our helper class.
 
-			// Once the SpatialAnchorStore has been loaded by the system, we can create our helper class.
-
-			// Using "new" to access private constructor
-			newHelper = std::shared_ptr<SampleSpatialAnchorHelper>(new SampleSpatialAnchorHelper(anchorStore));
-
-
-			newHelper->LoadFromAnchorStore();
-
-			// Now we can load anchors from the store.
-
-		}
-		catch (Exception^ exception)
-		{
-			/*		PrintWstringToDebugConsole(
-			std::wstring(L"Exception while loading the anchor store: ") +
-			exception->Message->Data() +
-			L"\n"
-			);*/
-		}
-
-		// Return the initialized class instance.
-		return newHelper;
-	}).get();
+	// Using "new" to access private constructor
+	//std::shared_ptr<SampleSpatialAnchorHelper> newHelper = nullptr;
+	
+	
+			try
+			{
+			
+				// Once the SpatialAnchorStore has been loaded by the system, we can create our helper class.
+	
+				// Using "new" to access private constructor
+				m_spatialAnchorHelper = std::shared_ptr<SampleSpatialAnchorHelper>(nullptr);
+	
+	
+				//newHelper->LoadFromAnchorStore();
+	
+				// Now we can load anchors from the store.
+				// = newHelper;
+	
+			}
+			catch (Exception^ exception)
+			{
+				/*		PrintWstringToDebugConsole(
+				std::wstring(L"Exception while loading the anchor store: ") +
+				exception->Message->Data() +
+				L"\n"
+				);*/
+			}
 
 }
 
@@ -1027,7 +1066,8 @@ bool HolographicSpatialMappingMain::SampleSpatialAnchorHelper::TrySaveToAnchorSt
 void HolographicSpatialMappingMain::SampleSpatialAnchorHelper::LoadFromAnchorStore()
 {
 	// If access is denied, 'anchorStore' will not be obtained.
-	if (m_anchorStore != nullptr)
+	//if (m_anchorStore != nullptr)
+	if (m_anchorStore)
 	{
 		// Get all saved anchors.
 		auto anchorMapView = m_anchorStore->GetAllSavedAnchors();
@@ -1043,12 +1083,13 @@ void HolographicSpatialMappingMain::SampleSpatialAnchorHelper::LoadFromAnchorSto
 void HolographicSpatialMappingMain::SampleSpatialAnchorHelper::ClearAnchorStore()
 {
 	// If access is denied, 'anchorStore' will not be obtained.
-	if (m_anchorStore != nullptr)
-	{
-		// Clear all anchors from the store.
-		m_anchorMap->Clear();
-		m_anchorStore->Clear();
-	}
+	//if (m_anchorStore != nullptr)
+	//{
+	//	// Clear all anchors from the store.
+	//	
+	//	m_anchorStore->Clear();
+	//}
+	m_anchorMap->Clear();
 }
 
 void HolographicSpatialMappingMain::OnLocatabilityChanged(SpatialLocator^ sender, Object^ args)
