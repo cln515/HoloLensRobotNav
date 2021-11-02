@@ -1,7 +1,10 @@
+Now new repository in Microsoft Applied Robotics Research Library (https://microsoft.github.io/HoloLensNavigationForRobots/) is available!!
 
 # HoloLens Robot Navigation
-
 HoloLens-ROS bridge and calibration tool package for robot navigation (HoloLens side)
+
+
+
 ## Description
 This is a package for robot navigation using two dimensional map. This package provides functions to calibrate the robot and HoloLens and to localize the robot on the map using SLAM function of the HoloLens.
 
